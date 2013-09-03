@@ -4,70 +4,119 @@ import ij.plugin.filter.PlugInFilter;
 import ij.process.FloatProcessor;
 import ij.process.ImageProcessor;
 
-
+/**Implementation of a fast mean filter and a median filter.
+ * Both filters only work on m x m kernel. Kernel must be of odd size.
+ * 
+ * PADDING TYPE
+ * The MEAN filter use a symmetric padding for borders.
+ * The MEDIAN filter gives the choice between symmetric/antisymmetric padding.
+ * 
+ * 
+ * @author aemaeth
+ *
+ */
 public class Filter implements PlugInFilter{
 
 	ImagePlus imp;
 
 	private final static int antisym = 0;
 	private final static int sym  = 1;
+	
+	/**
+	 * 
+	 * @param ip - ImageProcessor containing a 32 bits (float) array
+	 * @param filterWidth - filter width
+	 * @param filterHeight - filter height
+	 * @return 32 bits floating array where pixel at location x,y is the mean of a m x n kernel at position x,y.
+	 */
 	public static ImageProcessor meanFastFilter(ImageProcessor ip, int filterWidth,int filterHeight){
-		
 		int height = ip.getHeight();
 		int width = ip.getWidth();
 		int extraPaddedWidth = (filterWidth/2) * 2;
 		int extraPaddedHeight = (filterHeight/2) * 2;
 		ip = ip.convertToFloat();
-		ImageProcessor paddedIp = createPaddedImage(ip,width+extraPaddedWidth ,height+extraPaddedHeight,sym);
-		float [] pix = (float [])paddedIp.getPixels();
-		float [] meanPix = meanWidthFilter(pix,width+extraPaddedWidth,height+extraPaddedHeight,filterWidth);
-		meanPix = meanHeightFilter(meanPix,width+extraPaddedWidth,height+extraPaddedHeight,filterHeight);
-		
-		ImageProcessor meanIP = new FloatProcessor(width,height,copyInterior(meanPix,width+extraPaddedWidth,height+extraPaddedHeight,width,height));
-		return meanIP;
+		boolean pad = true;
+		if(pad){
+			float [] pix = (float [] ) ip.getPixels();
+			float [] meanPix = meanWidthFilter(pix,width,height,filterWidth);
+			meanPix = meanHeightFilter(meanPix,width,height,filterHeight);
+			ImageProcessor meanIP = new FloatProcessor(width,height,meanPix);
+			return meanIP;
+		}
+		else{
+			//Pad input image.
+			ImageProcessor paddedIp = createPaddedImage(ip,width+extraPaddedWidth ,height+extraPaddedHeight,sym);
+			float [] pix = (float [])paddedIp.getPixels();
+			//Linear filtering in X. 
+			float [] meanPix = meanWidthFilter(pix,width+extraPaddedWidth,height+extraPaddedHeight,filterWidth);
+			//Linear filtering in Y.
+			meanPix = meanHeightFilter(meanPix,width+extraPaddedWidth,height+extraPaddedHeight,filterHeight);
+			ImageProcessor meanIP = new FloatProcessor(width,height,copyInterior(meanPix,width+extraPaddedWidth,height+extraPaddedHeight,width,height));
+			return meanIP;
+		}
 	}
-	
+
+	/**Function that copies the interior of a padded pixel array to a second array containing only the interior pixels.
+	 * 
+	 * @param pix - Pixel array coming from a padded pixel array
+	 * @param paddedWidth - The padded image Width.
+	 * @param paddedHeight - The padded image height.
+	 * @param imageWidth - The original image width
+	 * @param imageHeight - The original image height
+	 * @return interiorPixels - Pixel array containing only the pixel that aren't padded pixels.
+	 */
 	private static float [] copyInterior(float [] pix,int paddedWidth,int paddedHeight,int imageWidth,int imageHeight){
 		float [] interiorPixels = new float[imageWidth*imageHeight];
-		int extraWidth = paddedWidth - imageWidth;
-		int extraHeight = paddedHeight - imageHeight;
+		int extraWidth = paddedWidth - imageWidth;//Difference in width between the 2 images.
+		int extraHeight = paddedHeight - imageHeight;//Difference in height between the 2 images.
 		for(int row = 0; row<imageHeight;row++){
 			int imageOffset = row*imageWidth;
 			int paddedOffset = row*paddedWidth + ((extraHeight/2)*paddedWidth);
 			for(int col = 0;col<imageWidth;col++){
 				//COPY INTERIOR
-				 interiorPixels[col+imageOffset] = pix[col+paddedOffset + extraWidth/2];
+				interiorPixels[col+imageOffset] = pix[col+paddedOffset + extraWidth/2];
 			}
 		}
 
 		return interiorPixels;
 	}	
-	
-	public static float [] meanHeightFilter(float [] pix, int width, int height, int filterHeight){
+
+	/**Function that use a linear kernel to calculate the mean in Y.
+	 * Note : Function doesn't use any padding for the borders, so borders effect are possible.
+	 * 		  If the image was padded, the image is treat as a regular image, but the important information can be retrieve with the function copyInterior
+	 * @param pix - 32 bits float pixel array
+	 * @param width - Image width
+	 * @param height - Image height
+	 * @param filterHeight - Filter Height
+	 * @return meanPix - Array where f(X,Y) is the mean calcule with a linear kernel of length 1 x m.
+	 */
+	private static float [] meanHeightFilter(float [] pix, int width, int height, int filterHeight){
+		//If the length of the linear kernel is 1. Nothing to do.
 		if(filterHeight == 1)
 			return pix;
 		float [] heightKernel = new float [filterHeight];
 		float [] meanPix = new float[pix.length];
-		int heightOffset = filterHeight/2 * width; 
+		int heightOffset = (filterHeight/2) * width; 
 		int cacheWidth = 0; 
 		int kernelIdx = 0;
 		float sum = 0;
 		for(int col = 0; col < width; col++){
 			for(int row = 0; row < height;row++){
 				int offset = row*width;
-				
+				//first pass of the column. Fill halve of the kernel.
 				if(row == 0){
 					kernelIdx = 0;
 					sum = 0;
 					cacheWidth = filterHeight/2 + 1; 
 					for(int i = 0;i < cacheWidth;i++){
-						sum += pix[offset+col+i*width];
-						heightKernel[kernelIdx] = pix[offset+col+i*width];
+						sum += pix[offset+col+(i*width)];
+						heightKernel[kernelIdx] = pix[offset+col+(i*width)];
 						kernelIdx ++;
 					}
 					for(int i =cacheWidth;i < filterHeight;i++){
 						heightKernel[i] = 0;
 					}
+					//We are near the end of the images. No value to add in the kernel array.
 				}else if(offset+col+heightOffset >= pix.length){
 					cacheWidth--;
 					sum -= heightKernel[kernelIdx];
@@ -76,12 +125,13 @@ public class Filter implements PlugInFilter{
 						kernelIdx ++;
 					else
 						kernelIdx = 0;
-				}else{
+				
+				}else{//Regular case. 
 					if (cacheWidth < filterHeight)
 						cacheWidth++;
 					sum -= heightKernel[kernelIdx];
 					sum += pix[offset+col + heightOffset];
-					heightKernel[kernelIdx] = pix[offset+col + heightOffset];
+					heightKernel[kernelIdx] = pix[offset + col + heightOffset];
 					if (kernelIdx < filterHeight-1)
 						kernelIdx ++;
 					else
@@ -92,13 +142,24 @@ public class Filter implements PlugInFilter{
 		}
 		return meanPix;
 	}
-	public static float [] meanWidthFilter(float [] pix, int width, int height, int filterWidth){
+	/**Function that use a linear kernel to calculate the mean in X.
+	 * Note : Function doesn't use any padding for the borders, so borders effect are possible.
+	 * 		  If the image was padded, the image is treat as a regular image, but the important information can be retrieve with the function copyInterior
+	 * 
+	 * 
+	 * @param pix - 32 bits float pixels array
+	 * @param width - Image width
+	 * @param height - Image height
+	 * @param filterWidth - Filter - Width
+	 * @return Pixel array where each pixels contains the mean of a linear kernel of size filterWidth.
+	 */
+	private static float [] meanWidthFilter(float [] pix, int width, int height, int filterWidth){
 		if (filterWidth == 1){
 			return pix;
 		}
 		float [] widthKernel = new float [filterWidth];
 		float [] meanPix = new float[pix.length];
-		
+
 		int widthOffset = filterWidth/2;
 		int cacheWidth = 0; 
 		float sum = 0;
@@ -120,13 +181,13 @@ public class Filter implements PlugInFilter{
 					}
 				}else if(offset+col+widthOffset >= offset+width){
 					try{
-					cacheWidth--;
-					sum -= widthKernel[kernelIdx];
-					widthKernel[kernelIdx] = 0;
-					if (kernelIdx < filterWidth-1)
-						kernelIdx ++;
-					else
-						kernelIdx = 0;
+						cacheWidth--;
+						sum -= widthKernel[kernelIdx];
+						widthKernel[kernelIdx] = 0;
+						if (kernelIdx < filterWidth-1)
+							kernelIdx ++;
+						else
+							kernelIdx = 0;
 					}catch(Exception e){
 						IJ.showMessage("At Pixel : " + Integer.toString(offset + col));
 					}
@@ -146,6 +207,7 @@ public class Filter implements PlugInFilter{
 		}
 		return meanPix;
 	}
+
 	//Filter a 32 bit image, with a float processor. If Image type is 8/16 bits, convert first with ImageJ convert
 	public static ImageProcessor medianFilter(ImageProcessor ip,int filterWidth,int filterHeight,int paddingType){
 		//Define height and width of the padded image.
@@ -158,8 +220,6 @@ public class Filter implements PlugInFilter{
 		int filterSize = filterWidth * filterHeight;
 
 		ImageProcessor paddedProcessor = createPaddedImage(ip,paddedWidth,paddedHeight,paddingType);
-		ImagePlus dum = new ImagePlus("paddedImage",paddedProcessor);
-		dum.show();
 		ImageProcessor medianProcessor;
 
 		float [] medianArray = new float [imageWidth*imageHeight];
@@ -311,6 +371,7 @@ public class Filter implements PlugInFilter{
 
 
 	@Override
+	//TODO implement MEAN/MEDIAN filter so it is possible to use only the filters. First function called by ImageJ
 	public int setup(String arg, ImagePlus imp) {
 		this.imp = imp;
 		try{
@@ -324,22 +385,40 @@ public class Filter implements PlugInFilter{
 		}
 		return DOES_ALL;	
 	}
-
-
+	//TODO implement MEAN/MEDIAN filter so it is possible to use only the filters. Called after setup.
 	public void run(ImageProcessor ip) {
-		ip = ip.convertToFloat();
-		ImageProcessor medianFilterProcessor = medianFilter(ip,5,5,0);
-		ImagePlus medianBackground = new ImagePlus("Background Image",medianFilterProcessor);
-		medianBackground.show();
 	}
-	
+
 	public static void main(String [] args){
-		float [] a = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25};
-		float [] b = meanHeightFilter(a,5,5,3);
-		Probabilistic_Segmentation.printArray(b);
-		
+		float [] a = createTestArray();
+		float [] b = meanWidthFilter(a,25,25,1);
+		b = meanHeightFilter(b,25,25,1);
+		printArray(b);
+		//float [] a = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25};
+		//float [] b = meanHeightFilter(a,5,5,3);
+		//Probabilistic_Segmentation.printArray(b);
 	}
-	
+
+	private static void printArray(float [] arr){
+		for(int i = 0;i<25;i++){
+			System.out.println();
+			int offset = i*25;
+			for(int j = 0; j < 25;j++){
+				System.out.print(arr[offset+j] + " ");
+			}
+		}
+	}
+	private static float [] createTestArray(){
+		float [] arr = new float [25*25];
+		for(int i = 0; i<25;i++){
+			int offset = i*25;
+			for(int j = 0;j<25;j++){
+				arr[offset+j] = j+1;
+				
+			}
+		}
+		return arr;
+	}
 	/*
 	private static float [] byteToFloat(byte [] arr){
 		float [] arr2 = new float [arr.length];
@@ -349,5 +428,5 @@ public class Filter implements PlugInFilter{
 		}
 		return arr2;
 	}
-	*/
+	 */
 }
