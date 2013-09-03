@@ -119,6 +119,11 @@ public class Probabilistic_Segmentation implements PlugInFilter,DialogListener{
 		 * 
 		 */
 		ImageProcessor segIP = threshold(ip,bgValue + noise * nseMult);
+		if(debug){
+			ImagePlus dum = new ImagePlus("threshold image",segIP);
+			dum.show();
+			return;
+		}
 		segIP = Filter.meanFastFilter(segIP,imgKernelWidth,imgKernelHeight);
 		if (debug){
 			ImagePlus meanImg = new ImagePlus("mean Image",segIP);
