@@ -13,11 +13,22 @@ import ij.process.*;
 import ij.plugin.filter.*;
 import ij.gui.*;
 
-public class Probabilistic_Segmentation implements PlugInFilter,DialogListener{
-	ImagePlus imp;
-	GenericDialog param;
-	double MAX_VALUE;
-	double MIN_VALUE;
+public class Probabilistic_Segmentation implements ExtendedPlugInFilter,DialogListener{
+	private ImagePlus imp;
+	
+	private ImageStack segSt;//Segmentation stack.
+	private ImagePlus segImg;//Segmentation window.
+	
+	//Debug stacks
+	private ImageStack backgroundSt;
+	private ImageStack meanSt;
+	private ImageStack diffSt;
+	
+	
+	private int nPasses = 1;
+	private int pass;
+	
+	//private ImageStack stack;
 
 	//THRESHOLD PARAM
 	private static double fpExp = 0.5;
@@ -38,14 +49,10 @@ public class Probabilistic_Segmentation implements PlugInFilter,DialogListener{
 	private static final String evenKernelError = "Kernel must be of odd size";
 	final double VERSION = 1.04;
 
+	 private int flags = DOES_ALL|CONVERT_TO_FLOAT;
+	 
 	public void run(ImageProcessor ip){
 
-		//Image is a 8/16/32 bit grayscale image.
-		//Convert to 32 bit grayscale image if necessary.
-		if(imp.getType() == ImagePlus.GRAY16 ||imp.getType() == ImagePlus.GRAY8)
-			ip =ip.convertToFloat();
-		if(!showDialog())
-			return;
 		//Validate background/image filter.
 		if(!validateBgKernel())
 			return ;
@@ -81,17 +88,14 @@ public class Probabilistic_Segmentation implements PlugInFilter,DialogListener{
 
 			ImageProcessor backgroundProcessor = Filter.medianFilter(ip,bgKernelWidth,bgKernelHeight,paddingType);
 
-			if(debug){
-				ImagePlus backgroundImage = new ImagePlus("Median image",backgroundProcessor);
-				backgroundImage.show();
+			if (debug){
+				backgroundSt.addSlice(ip);
 			}
-
 			if (doPoissonEstimation){
 
 			}else{
 				//Subtract the image with the background
 				subtract(ip,backgroundProcessor);
-				imp.setProcessor(ip);
 				imp.updateAndDraw();
 			}
 		}
@@ -103,10 +107,12 @@ public class Probabilistic_Segmentation implements PlugInFilter,DialogListener{
 		diffIp = diffCol(diffIp,3);
 
 		if (debug){
+			if(pass == 0){
+				this.diffSt = new ImageStack(diffIp.getWidth(),diffIp.getHeight());
+			}
 			ImageProcessor dummy = new FloatProcessor(diffIp.getWidth(),diffIp.getHeight());
 			dummy.copyBits(diffIp, 0, 0, Blitter.COPY);
-			ImagePlus diffImage = new ImagePlus("Diff Image",dummy);
-			diffImage.show();
+			diffSt.addSlice(dummy);
 		}
 		float stdDiffImage = getStd(diffIp);
 		//IJ.showMessage("Standard Deviation : "+ Float.toString(stdDiffImage));
@@ -119,23 +125,32 @@ public class Probabilistic_Segmentation implements PlugInFilter,DialogListener{
 		 * 
 		 */
 		ImageProcessor segIP = threshold(ip,bgValue + noise * nseMult);
-		if(debug){
-			ImagePlus dum = new ImagePlus("threshold image",segIP);
-			dum.show();
-			return;
-		}
 		segIP = Filter.meanFastFilter(segIP,imgKernelWidth,imgKernelHeight);
 		if (debug){
-			ImagePlus meanImg = new ImagePlus("mean Image",segIP);
-			meanImg.show();
+			meanSt.addSlice(segIP);
 		}
 		segIP = binaryThreshold(segIP,fpThresh);
-		ImagePlus segImg = new ImagePlus("Segmentation Image",segIP);
-		segImg.show();
+		segSt.addSlice(segIP);
+		if (pass == nPasses-1){
+			segImg.setStack("Segmentation Image",segSt);
+			if(debug){
+				ImagePlus backgroundImage = new ImagePlus("Median image",backgroundSt);
+				backgroundImage.show();
+				
+				ImagePlus diffImage = new ImagePlus("Diff Image",diffSt);
+				diffImage.show();
+				
+
+				ImagePlus meanImg = new ImagePlus("mean Image",meanSt);
+				meanImg.show();
+			}
+			segImg.show();
+		}
+		pass++;
 	}
 	public int setup(java.lang.String arg, ImagePlus imp){
+		
 		this.imp = imp;
-		this.MIN_VALUE = 0;
 		try{
 			if (imp.getType() == ImagePlus.COLOR_256 || imp.getType() == ImagePlus.COLOR_RGB){
 				IJ.error("Image needs to be a grayscale image.");
@@ -145,12 +160,14 @@ public class Probabilistic_Segmentation implements PlugInFilter,DialogListener{
 			IJ.noImage();
 			return DONE;
 		}
-
-		this.MAX_VALUE = Math.pow(2,imp.getBitDepth()) - 1;
-		return DOES_ALL;	
+		segSt = new ImageStack(imp.getWidth(),imp.getHeight());
+		segImg = new ImagePlus();
+		backgroundSt = new ImageStack(imp.getWidth(),imp.getHeight());
+		meanSt = new ImageStack(imp.getWidth(),imp.getHeight());
+		return flags;	
 	}
 
-	public boolean showDialog(){
+	public int showDialog(ImagePlus imp, String command, PlugInFilterRunner pfr) {
 		GenericDialog gd = new GenericDialog("Probabilistic Segmentation Parameters");
 		gd.addNumericField("False positive expectancy",fpExp,1);
 		gd.addNumericField("Noise multiplicator",nseMult,1);
@@ -172,10 +189,11 @@ public class Probabilistic_Segmentation implements PlugInFilter,DialogListener{
 		gd.addDialogListener(this); 
 		gd.showDialog();
 		if(gd.wasCanceled())
-			return false;
-		return true;
+			return DONE;
+		flags = IJ.setupDialog(imp, flags);     // ask whether to process all slices of stack (if a stack)
+		return flags;
 	}
-
+	
 	public boolean dialogItemChanged(GenericDialog gd, AWTEvent e) {
 
 		Vector<?> numFields = gd.getNumericFields();
@@ -446,5 +464,14 @@ public class Probabilistic_Segmentation implements PlugInFilter,DialogListener{
 		}
 		return true;
 	}
+	
+
+	
+	public void setNPasses(int nPasses) {
+		this.nPasses = nPasses;
+		this.pass = 0;
+		// TODO Auto-generated method stub	
+	}
+		
 
 }
