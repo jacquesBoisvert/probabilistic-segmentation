@@ -142,7 +142,7 @@ public class Probabilistic_Segmentation implements ExtendedPlugInFilter,DialogLi
 				backgroundSt.addSlice(ip);
 			}
 			if (doPoissonEstimation){
-
+				
 			}else{
 				//Subtract the image with the background
 				subtract(ip,backgroundProcessor);
@@ -288,7 +288,9 @@ public class Probabilistic_Segmentation implements ExtendedPlugInFilter,DialogLi
 		doPoissonEstimation = gd.getNextBoolean();
 		paddingType = gd.getNextChoiceIndex();//0 = antisymmetric, 1 = symmetric;
 		debug = gd.getNextBoolean();
-
+		xBgKernel.setEnabled(doBackgroundSub);
+		yBgKernel.setEnabled(doBackgroundSub);
+		
 		return !gd.invalidNumber();
 	}
 
