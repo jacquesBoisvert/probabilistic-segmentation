@@ -125,7 +125,7 @@ public class Probabilistic_Segmentation implements ExtendedPlugInFilter,DialogLi
 		int idx = 0;
 		for(int i = 0; i < avgMaskSize;i++){
 			if (expectedFT[i] <= fpExp){
-				idx = i;
+					idx = i;
 				break;
 			}
 		}
@@ -135,9 +135,9 @@ public class Probabilistic_Segmentation implements ExtendedPlugInFilter,DialogLi
 		 * 
 		 */
 		if (doBackgroundSub){
-
+ 
 			ImageProcessor backgroundProcessor = Filter.medianFilter(ip,bgKernelWidth,bgKernelHeight,paddingType);
-
+			
 			if (debug){
 				backgroundSt.addSlice(ip);
 			}
@@ -148,6 +148,15 @@ public class Probabilistic_Segmentation implements ExtendedPlugInFilter,DialogLi
 				subtract(ip,backgroundProcessor);
 				imp.updateAndDraw();
 			}
+		}
+		else{
+			ImageProcessor dummy = new FloatProcessor(ip.getWidth(),ip.getHeight());
+			dummy.copyBits(ip, 0, 0, Blitter.COPY);
+			float [] dummyPix = new float [dummy.getWidth() * dummy.getHeight()];
+			dummyPix = (float [] ) dummy.getPixels();
+			float med;
+			med = QuickSelect.select(dummyPix,0,dummyPix.length-1,dummyPix.length/2+1);
+			bgValue = (int)med;
 		}
 
 		/**ESTIMATE NOISE
@@ -175,6 +184,7 @@ public class Probabilistic_Segmentation implements ExtendedPlugInFilter,DialogLi
 		 * 
 		 */
 		ImageProcessor segIP = threshold(ip,bgValue + noise * nseMult);
+		
 		segIP = Filter.meanFastFilter(segIP,imgKernelWidth,imgKernelHeight);
 		if (debug){
 			meanSt.addSlice(segIP);
@@ -184,9 +194,10 @@ public class Probabilistic_Segmentation implements ExtendedPlugInFilter,DialogLi
 		if (pass == nPasses-1){
 			segImg.setStack("Segmentation Image",segSt);
 			if(debug){
-				ImagePlus backgroundImage = new ImagePlus("Median image",backgroundSt);
-				backgroundImage.show();
-
+				if(doBackgroundSub){
+					ImagePlus backgroundImage = new ImagePlus("Median image",backgroundSt);
+					backgroundImage.show();
+				}
 				ImagePlus diffImage = new ImagePlus("Diff Image",diffSt);
 				diffImage.show();
 
@@ -508,6 +519,4 @@ public class Probabilistic_Segmentation implements ExtendedPlugInFilter,DialogLi
 		this.pass = 0;
 		// TODO Auto-generated method stub	
 	}
-
-
 }
